@@ -14,16 +14,16 @@ module CarrierWave
         errors << ::ActiveRecord::RecordNotFound      if defined?(::ActiveRecord)
         errors << ::Mongoid::Errors::DocumentNotFound if defined?(::Mongoid)
 
-        record = begin
+        @record = begin
           constantized_resource.find(id)
         rescue *errors
           nil
         end
 
-        if record
-          record.send(:"process_#{column}_upload=", true)
-          if record.send(:"#{column}").recreate_versions! && record.respond_to?(:"#{column}_processing")
-            record.update_attribute :"#{column}_processing", nil
+        if @record
+          @record.send(:"process_#{column}_upload=", true)
+          if @record.send(:"#{column}").recreate_versions! && @record.respond_to?(:"#{column}_processing")
+            @record.update_attribute :"#{column}_processing", nil
           end
         end
       end
@@ -38,6 +38,41 @@ module CarrierWave
         klass.is_a?(String) ? klass.constantize : klass
       end
 
+      def enqueue(job)
+        if @record.respond_to?(:enqueue_callback)
+          @record.enqueue_callback(job)
+        end
+      end
+
+      def before(job)
+        if @record.respond_to?(:before_callback)
+          @record.before_callback(job)
+        end
+      end
+
+      def after(job)
+        if @record.respond_to?(:after_callback)
+          @record.after_callback(job)
+        end
+      end
+
+      def success(job)
+        if @record.respond_to?(:success_callback)
+          @record.success_callback(job)
+        end
+      end
+
+      def error(job, exception)
+        if @record.respond_to?(:error_callback)
+          @record.error_callback(job, exception)
+        end
+      end
+
+      def failure
+        if @record.respond_to?(:failure_callback)
+          @record.failure_callback
+        end
+      end
     end # ProcessAsset
 
   end # Workers
