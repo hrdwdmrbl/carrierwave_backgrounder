@@ -39,28 +39,20 @@ module CarrierWave
         #   end
         #
         def process_in_background(column, worker=::CarrierWave::Workers::ProcessAsset)
+          send :attr_accessor, :"process_#{column}_upload"
+
           send :before_save, :"set_#{column}_processing", :if => :"trigger_#{column}_background_processing?"
-          send :after_save,  :"enqueue_#{column}_background_job", :if => :"trigger_#{column}_background_processing?"
+          callback = self.respond_to?(:after_commit) ? :after_commit : :after_save
+          send callback, :"enqueue_#{column}_background_job", :if => :"trigger_#{column}_background_processing?"
 
           class_eval  <<-RUBY, __FILE__, __LINE__ + 1
-            attr_accessor :process_#{column}_upload
 
             def set_#{column}_processing
               self.#{column}_processing = true if respond_to?(:#{column}_processing)
             end
 
             def enqueue_#{column}_background_job
-              if defined? ::GirlFriday
-                CARRIERWAVE_QUEUE << { :worker => #{worker}.new(self.class.name, id, #{column}.mounted_as) }
-              elsif defined? ::Delayed::Job
-                ::Delayed::Job.enqueue #{worker}.new(self.class.name, id, #{column}.mounted_as)
-              elsif defined? ::Resque
-                ::Resque.enqueue #{worker}, self.class.name, id, #{column}.mounted_as
-              elsif defined? ::Qu
-                ::Qu.enqueue #{worker}, self.class.name, id, #{column}.mounted_as
-              elsif defined? ::Sidekiq
-                ::Sidekiq::Client.enqueue #{worker}, self.class.name, id, #{column}.mounted_as
-              end
+              CarrierWave::Backgrounder.enqueue_for_backend(#{worker}, self.class.name, id.to_s, #{column}.mounted_as)
             end
 
             def trigger_#{column}_background_processing?
@@ -93,10 +85,12 @@ module CarrierWave
         #   end
         #
         def store_in_background(column, worker=::CarrierWave::Workers::StoreAsset)
-          send :after_save, :"enqueue_#{column}_background_job", :if => :"trigger_#{column}_background_storage?"
+          send :attr_accessor, :"process_#{column}_upload"
+
+          callback = self.respond_to?(:after_commit) ? :after_commit : :after_save
+          send callback, :"enqueue_#{column}_background_job", :if => :"trigger_#{column}_background_storage?"
 
           class_eval  <<-RUBY, __FILE__, __LINE__ + 1
-            attr_accessor :process_#{column}_upload
 
             def write_#{column}_identifier
               super() and return if process_#{column}_upload
@@ -108,17 +102,7 @@ module CarrierWave
             end
 
             def enqueue_#{column}_background_job
-              if defined? ::GirlFriday
-                CARRIERWAVE_QUEUE << { :worker => #{worker}.new(self.class.name, id, #{column}.mounted_as) }
-              elsif defined? ::Delayed::Job
-                ::Delayed::Job.enqueue #{worker}.new(self.class.name, id, #{column}.mounted_as)
-              elsif defined? ::Resque
-                ::Resque.enqueue #{worker}, self.class.name, id, #{column}.mounted_as
-              elsif defined? ::Qu
-                ::Qu.enqueue #{worker}, self.class.name, id, #{column}.mounted_as
-              elsif defined? ::Sidekiq
-                ::Sidekiq::Client.enqueue #{worker}, self.class.name, id, #{column}.mounted_as
-              end
+              CarrierWave::Backgrounder.enqueue_for_backend(#{worker}, self.class.name, id.to_s, #{column}.mounted_as)
             end
 
             def trigger_#{column}_background_storage?

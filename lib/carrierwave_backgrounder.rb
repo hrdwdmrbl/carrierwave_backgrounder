@@ -1,13 +1,19 @@
+require 'active_support/core_ext/object'
+require 'backgrounder/support/backends'
+require 'backgrounder/orm/base'
+require 'backgrounder/delay'
+
 module CarrierWave
   module Backgrounder
-    Logger = Logger.new(STDOUT)
+    include Support::Backends
 
-    autoload :Delay, 'backgrounder/delay'
-    autoload :DelayStorage, 'backgrounder/delay'
+    class UnsupportedBackendError < StandardError ; end
+    class ToManyBackendsAvailableError < StandardError ; end
 
-    module ORM
-      autoload :Base, 'backgrounder/orm/base'
+    def self.configure
+      yield self
     end
+
   end
 end
 
@@ -18,7 +24,8 @@ if defined?(Rails)
 
         initializer "carrierwave_backgrounder.active_record" do
           ActiveSupport.on_load :active_record do
-            require 'backgrounder/orm/activerecord'
+            require 'backgrounder/orm/activemodel'
+            ::ActiveRecord::Base.extend CarrierWave::Backgrounder::ORM::ActiveModel
           end
         end
 
@@ -27,19 +34,13 @@ if defined?(Rails)
         end
 
         initializer "carrierwave_backgrounder.mongoid" do
-          require 'backgrounder/orm/mongoid' if defined?(Mongoid)
+          if defined?(Mongoid)
+            require 'backgrounder/orm/activemodel'
+            ::Mongoid::Document::ClassMethods.send(:include, ::CarrierWave::Backgrounder::ORM::ActiveModel)
+          end
         end
 
       end
     end
-  end
-end
-
-if defined?(GirlFriday)
-  require 'girl_friday'
-
-  CARRIERWAVE_QUEUE = GirlFriday::WorkQueue.new(:carrierwave) do |msg|
-    worker = msg[:worker]
-    worker.perform
   end
 end

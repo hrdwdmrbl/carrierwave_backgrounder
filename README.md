@@ -1,37 +1,60 @@
-# CarrierWave Backgrounder [![Build Status](https://secure.travis-ci.org/lardawge/carrierwave_backgrounder.png)](http://travis-ci.org/lardawge/carrierwave_backgrounder)
+# CarrierWave Backgrounder 
+
+[![Build Status](https://secure.travis-ci.org/lardawge/carrierwave_backgrounder.png)](http://travis-ci.org/lardawge/carrierwave_backgrounder)
+[![Code Quality](https://codeclimate.com/badge.png)](https://codeclimate.com/github/lardawge/carrierwave_backgrounder)
 
 I like CarrierWave. That being said, I don't like tying up app instances waiting for images to process.
 
-This gem addresses that issue by disabling processing until a background process initiates it.
-It supports Delayed Job, Resque and Girl Friday.
+This gem addresses that by offloading processing or storage/processing to a background task.
+We currently support Delayed Job, Resque, Sidekiq, Girl Friday, Qu, and Queue Classic.
 
 ## Background options
 
 There are currently two offerings for backgrounding upload tasks which are as follows;
 
 ```ruby
+# This stores the original file with no processing/versioning.
+# It will upload the original file to s3.
+# This was developed to use where you do not have control over the cache location such as Heroku.
+
 Backgrounder::ORM::Base::process_in_background
 ```
 
-This method stores the original file and does no processing or versioning. Optionally you can add a column to the database which will be set to nil when the background processing is complete.
-
 ```ruby
+# This does nothing to the file after it is cached which makes it super fast.
+# It requires a column in the database which stores the cache location set by carrierwave so the background job can access it.
+# The drawback to using this method is the need for a central location to store the cached files.
+# Heroku may deploy workers on separate servers from where your dyno cached the files.
+#
+# IMPORTANT: Only use this method if you have full control over your tmp storage directory.
+
 Backgrounder::ORM::Base::store_in_background
 ```
 
-This method does nothing to the file after it is cached which makes it super fast. It requires a column in the database which stores the cache location set by carrierwave. The drawback to using this method is the need for a central location to store the cached files. This leave heroku out. Heroku may deploy workers on separate servers from where your dyno cached the files. That being said, I only recommend using this method if you have full control over your temp storage directory.
+## Installation and Usage
 
-## Installation
-
-These instructions assume you have previously set up [CarrierWave](https://github.com/jnicklas/carrierwave) and [DelayedJob](https://github.com/collectiveidea/delayed_job) or Resque
+These instructions assume you have previously set up [CarrierWave](https://github.com/jnicklas/carrierwave) and your queing lib of choice.
 
 In Rails, add the following your Gemfile:
 
 ```ruby
+# IMPORTANT: Be sure to list the backend job processor you intend to use, before carrierwave_backgrounder
+gem 'sidekiq' # or delayed_job, resque, ect...
 gem 'carrierwave_backgrounder'
 ```
 
-## Getting Started
+Run the generator which will create an initializer in config/initializers.
+```bash
+  rails g carrierwave_backgrounder:install
+```
+
+You can pass additional configuration options to Girl Friday and Sidekiq:
+
+```ruby
+CarrierWave::Backgrounder.configure do |c|
+  c.backend :girl_friday, queue: :awesome_queue, size: 3, store: GirlFriday::Store::Redis
+end
+```
 
 In your CarrierWave uploader file:
 
@@ -75,30 +98,38 @@ add_column :users, :avatar_tmp, :string
 
 ## Usage Tips
 
+### Bypass backgrounding
 If you need to process/store the upload immediately:
 
 ```ruby
 @user.process_<column>_upload = true
 ```
 
+### Override worker
 To overide the worker in cases where additional methods need to be called or you have app specific requirements, pass the worker class as the
 second argument:
 
 ```ruby
-process_in_background :avatar, MyAppsAwesomeProcessingWorker
+process_in_background :avatar, MyParanoidWorker
 ```
 
-## ORM
-
-Currently ActiveRecord is the default orm and I have not tested this with others but it should work by adding the following to your carrierwave initializer:
+Then create a worker that subclasses carrierwave_backgrounder's worker:
 
 ```ruby
-DataMapper::Model.send(:include, ::CarrierWave::Backgrounder::ORM::Base)
-# or
-Mongoid::Document::ClassMethods.send(:include, ::CarrierWave::Backgrounder::ORM::Base)
-# or
-Sequel::Model.send(:extend, ::CarrierWave::Backgrounder::ORM::Base)
+class MyParanoidWorker < ::CarrierWave::Workers::ProcessAsset
+  # ...or subclass CarrierWave::Workers::StoreAsset if you're using store_in_background
+
+  def error(job, exception)
+    report_job_failure  # or whatever
+  end
+
+  # other hooks you might care about
+end
 ```
+### Testing with Rspec
+We use the after_commit hook when using active_record. This creates a problem when testing with Rspec because after_commit never gets fired
+if you're using trasactional fixtures. One solution to the problem is to use the [TestAfterCommit gem](https://github.com/grosser/test_after_commit).
+There are various other solutions in which case google is your friend.
 
 ## Callbacks
 
