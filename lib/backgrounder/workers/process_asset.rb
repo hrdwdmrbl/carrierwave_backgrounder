@@ -21,7 +21,6 @@ module CarrierWave
         end
       end
 
-      private
 
       def set_args(klass, id, column)
         self.klass, self.id, self.column = klass, id, column
@@ -63,6 +62,7 @@ module CarrierWave
         end
       end
 
+      private
       def constantized_resource
         klass.is_a?(String) ? klass.constantize : klass
       end
