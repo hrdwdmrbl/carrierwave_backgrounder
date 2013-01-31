@@ -28,7 +28,6 @@ module CarrierWave
         end
       end
 
-      private
 
       def set_args(klass, id, column)
         self.klass, self.id, self.column = klass, id, column
